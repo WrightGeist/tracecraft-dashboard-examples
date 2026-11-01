@@ -1,0 +1,9 @@
+.pio/
+*/src/idf_component.yml
+*.orig
+__pycache__/
+*.pyc
+.vscode/
+.DS_Store
+Thumbs.db
+*.eez-project-ui-state

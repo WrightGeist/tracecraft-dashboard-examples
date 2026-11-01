@@ -1,0 +1,21 @@
+{
+  "files": [
+    "actions.h",
+    "fonts.h",
+    "images.c",
+    "images.h",
+    "screens.c",
+    "screens.h",
+    "structs.h",
+    "styles.c",
+    "styles.h",
+    "ui.c",
+    "ui.h",
+    "ui_font_geist_16.c",
+    "ui_font_geist_bold_128.c",
+    "ui_font_geist_bold_32.c",
+    "ui_font_geist_bold_72.c",
+    "ui_font_geist_bold_96.c",
+    "vars.h"
+  ]
+}

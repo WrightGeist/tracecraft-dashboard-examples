@@ -1,0 +1,4 @@
+["tire_temp_fl", "tire_temp_fr", "tire_temp_rl", "tire_temp_rr",
+ "pit_limiter",
+ "fuel_pct", "fuel_liters", "fuel_laps_left", "fuel_per_lap",
+ "game_fps", "sys_cpu_pct", "sys_gpu_pct"]

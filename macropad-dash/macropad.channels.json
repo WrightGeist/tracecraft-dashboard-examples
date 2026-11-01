@@ -1,0 +1,23 @@
+{
+  "_about": [
+    "The MacroPad's channels, one view per sim page (PROTOCOL.md 4.7). The pad",
+    "declares every channel below and, on each turn of the knob, asks the host for",
+    "just that page's view. Each list is what that page's cells read (their TC_CH_*",
+    "references in src/headless/macropad_dash.cpp), so change the two together.",
+    "The ACC and AC EVO pages are placeholders with no view yet."
+  ],
+  "views": {
+    "lmu": [
+      "tc_level", "tc_cut", "tc_slip",
+      "abs_level", "brake_bias_pct", "brake_mig",
+      "engine_map", "regen_power_kw",
+      "headlights", "wipers"
+    ],
+    "iracing": [
+      "tc_level", "tc2", "tc3", "tc4",
+      "brake_bias_pct", "abs_level", "engine_braking",
+      "drs_active", "drs_available", "p2p_active", "p2p_remaining",
+      "mguk_mode", "mguk_regen"
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+name: build
+
+# Every example still builds against the libraries it names.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - channel-monitor
+          - t4-s3-eez-dash
+          - t4-s3-deck
+          - t-display-s3-gmeter
+          - t-display-s3-amoled-dash
+          - crowpanel-round-dash
+          - waveshare-p4-deck
+          - headless-serial-console
+          - trinket-shift-light
+          - pico-shift-light
+          - macropad-dash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ matrix.project }}-${{ hashFiles(format('{0}/platformio.ini', matrix.project)) }}
+      - run: pip install platformio
+      - run: pio run -d ${{ matrix.project }}

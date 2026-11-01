@@ -1,0 +1,9 @@
+[
+  "gear",
+  "rpm",
+  "speed_kmh",
+  "throttle_pct",
+  "brake_pct",
+  "fuel_pct",
+  "lap_time_str"
+]
