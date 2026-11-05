@@ -1,1 +1,1 @@
-["brake_bias_pct", "engine_map", "headlights", "wipers", "turn_left", "turn_right"]
+["brake_bias_pct", "tc_level", "tc_active", "abs_level", "abs_active", "engine_map"]
