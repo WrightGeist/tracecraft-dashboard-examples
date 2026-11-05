@@ -1,0 +1,11 @@
+# LVGL is configured here on ESP-IDF, not in lv_conf.h.
+# The boot splash draws in Montserrat 10-16; the dials use the Geist fonts in src/fonts.
+CONFIG_LV_FONT_MONTSERRAT_10=y
+CONFIG_LV_FONT_MONTSERRAT_12=y
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_16=y
+# Tick marks around the dials.
+CONFIG_LV_USE_SCALE=y
+# The board's 16 MB flash, and one large app partition: the 40 px font is big.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y

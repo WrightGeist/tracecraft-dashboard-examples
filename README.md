@@ -15,7 +15,7 @@ one, change it, and it is yours.
 | [t4-s3-deck](t4-s3-deck/) | T4-S3 deck | Lilygo T4-S3 AMOLED, 450x600, with the CST226 touch panel |
 | [t-display-s3-gmeter](t-display-s3-gmeter/) | T-Display S3 G-meter | Lilygo T-Display S3, 320x170 ST7789 |
 | [t-display-s3-amoled-dash](t-display-s3-amoled-dash/) | T-Display S3 AMOLED driver dash | Lilygo T-Display S3 AMOLED, 536x240 RM67162 |
-| [crowpanel-round-dash](crowpanel-round-dash/) | CrowPanel round setting tweaker | Elecrow CrowPanel 1.28" round, 240x240 GC9A01, with the rotary encoder |
+| [crowpanel-round-dash](crowpanel-round-dash/) | CrowPanel round dial: a dashboard and a gamepad on one cable (ESP-IDF) | Elecrow CrowPanel 1.28" round, 240x240 GC9A01, with the rotary encoder |
 | [waveshare-p4-deck](waveshare-p4-deck/) | Waveshare P4 deck | Waveshare ESP32-P4-WIFI6-Touch-LCD-5, 720x1280 MIPI-DSI |
 | [headless-serial-console](headless-serial-console/) | Headless serial console | Any ESP32-S3 board |
 | [trinket-shift-light](trinket-shift-light/) | Trinket M0 shift light | Adafruit Trinket M0 |
