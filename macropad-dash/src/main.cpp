@@ -16,7 +16,7 @@
  *      abbreviations — the legend for the 3x4 keys below it, with each setting's
  *      current value. One page per supported sim (LMU, ACC, AC EVO, iRacing);
  *      pressing the knob cycles through them. LMU and iRacing are filled in;
- *      ACC and AC EVO are placeholder grids waiting for their dial lists.
+ *      ACC and AC EVO show their supported cockpit controls and status.
  *
  * One cell is always SELECTED (drawn inverted): the first cell when a page
  * opens, then whichever cell's key was pressed last. The knob adjusts it.
@@ -110,9 +110,11 @@ static constexpr uint32_t kDrawIntervalMs = 90;
 // recorder cannot say -- has() is then true for everything and an absent channel
 // reads 0 -- so each kind still decides what a 0 means.
 enum class Fmt : uint8_t {
+  Bool,     // boolean indicator (not an integer dial)
   None,     // placeholder: no channel yet, always "--"
   Key,      // label only — a reminder of what the key under it does (no value)
-  Dial,     // integer aid dial; 0 -> "--" (car lacks the dial, or it's off)
+  Aid,      // TC/ABS level: a present 0 means OFF
+  Dial,     // other integer dials: keep a valid zero as 0
   Raw,      // integer where 0 is a real setting (LMU's motor map 0 is a map)
   OnOff,    // integer stage where 0 means off (lights, wipers)
   Pct1,     // float percent, one decimal (brake bias 54.5); <= 1 -> "--"
@@ -143,22 +145,32 @@ struct Page {
 // page's view lists exactly the channels its cells read (macropad.channels.json).
 static const Page kPages[] = {
   { "LMU", TC_VIEW_LMU, {
-    { { "TC",   TC_CH_TC_LEVEL,       Fmt::Dial  }, { "CUT", TC_CH_TC_CUT,         Fmt::Dial  }, { "SLIP", TC_CH_TC_SLIP,  Fmt::Dial } },
-    { { "ABS",  TC_CH_ABS_LEVEL,      Fmt::Dial  }, { "BBi", TC_CH_BRAKE_BIAS_PCT, Fmt::Pct1  }, { "BMi",  TC_CH_BRAKE_MIG, Fmt::Dial } },
+    { { "TC",   TC_CH_TC_LEVEL,       Fmt::Aid  }, { "CUT", TC_CH_TC_CUT,         Fmt::Dial  }, { "SLP",  TC_CH_TC_SLIP,  Fmt::Dial } },
+    { { "ABS",  TC_CH_ABS_LEVEL,      Fmt::Aid  }, { "BBi", TC_CH_BRAKE_BIAS_PCT, Fmt::Pct1  }, { "BMi",  TC_CH_BRAKE_MIG, Fmt::Dial } },
     // RGN is LMU's live regen flow in kW (+ harvesting, - deploying): the sim
     // publishes no regen-level dial. TCO (TC override) is a bindable action.
     { { "MAP",  TC_CH_ENGINE_MAP,     Fmt::Raw   }, { "RGN", TC_CH_REGEN_POWER_KW, Fmt::Kw    }, { "TCO",  0,               Fmt::Key } },
-    // WIPT (wiper toggle) is a bindable action; WIP shows the wiper state it sets.
-    { { "LIT",  TC_CH_HEADLIGHTS,     Fmt::OnOff }, { "WIP", TC_CH_WIPERS,         Fmt::OnOff }, { "WIPT", 0,               Fmt::Key } },
+    // WPT (wiper toggle) is a bindable action; WIP shows the wiper state it sets.
+    { { "LIT",  TC_CH_HEADLIGHTS,     Fmt::OnOff }, { "WIP", TC_CH_WIPERS,         Fmt::OnOff }, { "WPT",  0,               Fmt::Key } },
   } },
-  { "ACC",     nullptr, { { TBD, TBD, TBD }, { TBD, TBD, TBD }, { TBD, TBD, TBD }, { TBD, TBD, TBD } } },
-  { "AC EVO",  nullptr, { { TBD, TBD, TBD }, { TBD, TBD, TBD }, { TBD, TBD, TBD }, { TBD, TBD, TBD } } },
+  { "ACC", TC_VIEW_ACC, {
+    { { "TC", TC_CH_TC_LEVEL, Fmt::Aid }, { "CUT", TC_CH_TC_CUT, Fmt::Dial }, { "ABS", TC_CH_ABS_LEVEL, Fmt::Aid } },
+    { { "BB", TC_CH_BRAKE_BIAS_PCT, Fmt::Pct1 }, { "LIT", TC_CH_HEADLIGHTS, Fmt::OnOff }, { "WIP", TC_CH_WIPERS, Fmt::OnOff } },
+    { { "PIT", TC_CH_PIT_LIMITER, Fmt::Bool }, { "IGN", TC_CH_IGNITION, Fmt::Bool }, { "STR", TC_CH_STARTER, Fmt::Bool } },
+    { { "FLS", TC_CH_HEADLIGHT_FLASH, Fmt::Bool }, { "RNL", TC_CH_RAIN_LIGHT, Fmt::Bool }, { "TCO", 0, Fmt::Key } },
+  } },
+  { "AC EVO", TC_VIEW_AC_EVO, {
+    { { "TC", TC_CH_TC_LEVEL, Fmt::Aid }, { "CUT", TC_CH_TC_CUT, Fmt::Dial }, { "ABS", TC_CH_ABS_LEVEL, Fmt::Aid } },
+    { { "BB", TC_CH_BRAKE_BIAS_PCT, Fmt::Pct1 }, { "MAP", TC_CH_ENGINE_MAP, Fmt::Raw }, { "PIT", TC_CH_PIT_LIMITER, Fmt::Bool } },
+    { { "IGN", TC_CH_IGNITION, Fmt::Bool }, { "RUN", TC_CH_ENGINE_RUNNING, Fmt::Bool }, { "STR", TC_CH_STARTER, Fmt::Bool } },
+    { { "DRS", TC_CH_DRS_ACTIVE, Fmt::Drs, TC_CH_DRS_AVAILABLE }, { "P2P", TC_CH_P2P_ACTIVE, Fmt::P2p, TC_CH_P2P_REMAINING }, { "CHG", TC_CH_HYB_CHARGING, Fmt::Bool } },
+  } },
   // Columns: traction control, brakes, hybrid / powertrain. iRacing numbers its
   // TC dials; which does what is per car. The recorder reads no fourth brake dial
   // (brake-bias fine, peak bias, migration), so that key is a placeholder.
   { "iRacing", TC_VIEW_IRACING, {
-    { { "TC1", TC_CH_TC_LEVEL, Fmt::Dial }, { "BB",  TC_CH_BRAKE_BIAS_PCT, Fmt::Pct1 }, { "DRS", TC_CH_DRS_ACTIVE, Fmt::Drs, TC_CH_DRS_AVAILABLE } },
-    { { "TC2", TC_CH_TC2,      Fmt::Dial }, { "ABS", TC_CH_ABS_LEVEL,      Fmt::Dial }, { "P2P", TC_CH_P2P_ACTIVE, Fmt::P2p, TC_CH_P2P_REMAINING } },
+    { { "TC1", TC_CH_TC_LEVEL, Fmt::Aid }, { "BB",  TC_CH_BRAKE_BIAS_PCT, Fmt::Pct1 }, { "DRS", TC_CH_DRS_ACTIVE, Fmt::Drs, TC_CH_DRS_AVAILABLE } },
+    { { "TC2", TC_CH_TC2,      Fmt::Dial }, { "ABS", TC_CH_ABS_LEVEL,      Fmt::Aid }, { "P2P", TC_CH_P2P_ACTIVE, Fmt::P2p, TC_CH_P2P_REMAINING } },
     // DEP / RGN: the MGU-K deploy-mode and regen-gain dials (hybrid cars).
     { { "TC3", TC_CH_TC3,      Fmt::Dial }, { "EB",  TC_CH_ENGINE_BRAKING, Fmt::Dial }, { "DEP", TC_CH_MGUK_MODE,  Fmt::Dial } },
     { { "TC4", TC_CH_TC4,      Fmt::Dial }, TBD,                                          { "RGN", TC_CH_MGUK_REGEN, Fmt::Dial } },
@@ -174,11 +186,15 @@ static void fmtCell(char* out, size_t n, const Cell& c, bool waiting) {
   if (waiting || c.fmt == Fmt::None) { strcpy(out, "--"); return; }
   if (!tcStore.has(c.ch)) { strcpy(out, "--"); return; }   // the sim publishes no value
   switch (c.fmt) {
-    case Fmt::Dial: {
+    case Fmt::Aid: {
       const int v = (int)tcStore.getInt(c.ch);
-      if (v > 0) snprintf(out, n, "%d", v); else strcpy(out, "--");
+      if (v == 0) strcpy(out, "OFF"); else snprintf(out, n, "%d", v);
       break;
     }
+    case Fmt::Bool:
+      strcpy(out, tcStore.getBool(c.ch) ? "ON" : "OFF");
+      break;
+    case Fmt::Dial:
     case Fmt::Raw:
       snprintf(out, n, "%d", (int)tcStore.getInt(c.ch));
       break;
@@ -190,7 +206,9 @@ static void fmtCell(char* out, size_t n, const Cell& c, bool waiting) {
     case Fmt::Pct1: {
       const float v = tcStore.getFloat(c.ch);
       const int tenths = (int)(v * 10.0f + 0.5f);
-      if (v > 1.0f) snprintf(out, n, "%d.%d", tenths / 10, tenths % 10); else strcpy(out, "--");
+      if (v <= 1.0f) strcpy(out, "--");
+      else if (tenths >= 1000) snprintf(out, n, "%d", tenths / 10);
+      else snprintf(out, n, "%d.%d", tenths / 10, tenths % 10);
       break;
     }
     case Fmt::Kw: {
@@ -220,7 +238,7 @@ static void fmtCell(char* out, size_t n, const Cell& c, bool waiting) {
 // "BBi 54.5" and "RGN -117". So each value starts right after the longest label
 // in its column (a tabular sub-column), which puts the spare space BETWEEN cells
 // rather than inside them; no divider lines needed. Both the same small size.
-static constexpr int kColX[3] = { 0, 42, 90 };
+static constexpr int kColX[3] = { 0, 44, 88 };
 static constexpr int kValueGap = 4;   // label's last pixel -> value's first: 3 px clear
 static constexpr int kHeaderRuleY = 10;
 static constexpr int kRowY[4] = { 14, 27, 40, 53 };

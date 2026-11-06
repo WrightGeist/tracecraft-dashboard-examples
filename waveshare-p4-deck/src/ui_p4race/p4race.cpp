@@ -290,8 +290,11 @@ void p4race_tick(bool waiting) {
   }
 
   // ---- TC lamps ---------------------------------------------------------------------
-  const bool tc = !waiting && tcStore.getBool(TC_CH_TC_ACTIVE);
-  const bool tcOn = tc && ((now / kTcHalfMs) & 1u) == 0;
+  const bool tc = !waiting && (tcStore.getBool(TC_CH_TC_ACTIVE) || tcStore.getBool(TC_CH_TC_PULSED));
+  static uint32_t tcLastMs = 0;
+  if (tc) tcLastMs = now;
+  if (waiting) tcLastMs = 0;
+  const bool tcOn = tc || (tcLastMs != 0 && now - tcLastMs < 150);
   if ((uint8_t)tcOn != s_tcShown[0] || s_tcShown[kTcN * 2] == 0xFF) {
     s_tcShown[0] = (uint8_t)tcOn;
     s_tcShown[kTcN * 2] = 1;

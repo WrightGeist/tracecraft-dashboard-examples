@@ -11,6 +11,18 @@
 #include <math.h>
 #include <TraceCraft.h>
 
+// Per-car limits; absent metadata retains a safe display fallback.
+static int32_t dashRpmMax() {
+  const int32_t value = tcStore.getInt(TC_CH_RPM_MAX);
+  return tcStore.has(TC_CH_RPM_MAX) && value >= 1000 && value <= 30000 ? value : 8000;
+}
+static int32_t dashRpmShift() {
+  const int32_t value = tcStore.getInt(TC_CH_RPM_SHIFT);
+  const int32_t maximum = dashRpmMax();
+  return tcStore.has(TC_CH_RPM_SHIFT) && value >= 1000 && value <= maximum
+      ? value : maximum * 96 / 100;
+}
+
 #if defined(TRACECRAFT_EFFECT_RPM_ARC)
 // --- Rev-limit arc effect ---------------------------------------------------
 // EEZ no-flow can bind a widget's value/flags to a variable, but NOT its style
@@ -28,8 +40,9 @@ static void captureArcColors() {
 
 static void applyArcLimitEffect() {
   lv_obj_t*     arc     = objects.rpm_arc;
-  const int32_t maxr    = lv_arc_get_max_value(arc);
-  const int32_t redline = (int32_t)(maxr * 0.95f);
+  const int32_t maxr    = dashRpmMax();
+  if (lv_arc_get_max_value(arc) != maxr) lv_arc_set_range(arc, 0, maxr);
+  const int32_t redline = dashRpmShift();
   const bool    atLimit = tcStore.getInt(TC_CH_RPM) >= redline;
 
   if (atLimit) {
@@ -112,9 +125,10 @@ static void setupRpmDots() {
 
 static void applyRpmDots() {
   if (!s_rpmDotN) return;
-  const int32_t maxr = lv_arc_get_max_value(objects.rpm_arc);
+  const int32_t maxr = dashRpmMax();
+  if (lv_arc_get_max_value(objects.rpm_arc) != maxr) lv_arc_set_range(objects.rpm_arc, 0, maxr);
   const int32_t rpm  = tcStore.getInt(TC_CH_RPM);
-  const int32_t redl = (int32_t)(maxr * 0.97f);
+  const int32_t redl = dashRpmShift();
   float frac = maxr > 0 ? (float)rpm / (float)maxr : 0.0f;
   if (frac < 0) frac = 0; else if (frac > 1) frac = 1;
   const int  lit     = (int)(frac * s_rpmDotN + 0.5f);
@@ -145,10 +159,6 @@ static void applyRpmDots() {
 // place an empty container named `shift_lights` in EEZ (position + size it),
 // and this draws the LEDs into it and drives them from the live `rpm` channel.
 #define TC_SHIFT_LEDS 32   // MAX dot capacity; the actual count is computed to pack the strip
-#ifndef TC_RPM_MAX
-#define TC_RPM_MAX 8000   // redline for the shift-light strip; override per dashboard build.
-                          // Decoupled from any widget so the strip needs no rpm_arc present.
-#endif
 static lv_obj_t* s_leds[TC_SHIFT_LEDS];
 static int  s_ledCount = 0;   // dots actually created (depends on strip width)
 static int  s_litPrev = -2;
@@ -190,10 +200,10 @@ static void setupShiftLights() {
 
 static void applyShiftLights() {
   if (!objects.shift_lights) return;
-  const int32_t maxr = TC_RPM_MAX;
+  const int32_t maxr = dashRpmMax();
   const int32_t rpm  = tcStore.getInt(TC_CH_RPM);
   const int32_t lo   = (int32_t)(maxr * 0.55f);    // strip starts filling here
-  const int32_t redl = (int32_t)(maxr * 0.97f);    // limiter -> all flash
+  const int32_t redl = dashRpmShift();    // limiter -> all flash
   float frac = (maxr > lo) ? (float)(rpm - lo) / (float)(maxr - lo) : 0.0f;
   if (frac < 0) frac = 0; else if (frac > 1) frac = 1;
   const int  lit     = (int)(frac * s_ledCount + 0.5f);
@@ -436,8 +446,14 @@ static void applyTellTales() {
   }
 
   ttIconLamp(s_ttWipers, sWp, tcStore.getInt(TC_CH_WIPERS) > 0 ? 1 : 0, 0x22D3EE);
-  ttIconLamp(s_ttTc,  sTc, tcStore.getBool(TC_CH_TC_ACTIVE)  ? 1 : 0, 0xFBBF24);
-  ttIconLamp(s_ttAbs, sAb, tcStore.getBool(TC_CH_ABS_ACTIVE) ? 1 : 0, 0xF97316);
+  static uint32_t tcLast = 0, absLast = 0;
+  const uint32_t now = millis();
+  const bool tc = tcStore.getBool(TC_CH_TC_ACTIVE) || tcStore.getBool(TC_CH_TC_PULSED);
+  const bool abs = tcStore.getBool(TC_CH_ABS_ACTIVE) || tcStore.getBool(TC_CH_ABS_PULSED);
+  if (tc) tcLast = now;
+  if (abs) absLast = now;
+  ttIconLamp(s_ttTc, sTc, tc || (tcLast && now - tcLast < 150), 0xFBBF24);
+  ttIconLamp(s_ttAbs, sAb, abs || (absLast && now - absLast < 150), 0xF97316);
 }
 #endif // TRACECRAFT_EFFECT_TELLTALES
 

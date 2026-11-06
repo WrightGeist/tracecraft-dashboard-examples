@@ -63,3 +63,10 @@ expects a controller to have some.
    and the arc follows.
 4. Unplug and replug mid-turn, and restart the recorder: no button stays lit, and the
    arcs come back.
+
+## Channel-aware gauges
+
+Engine-map limits follow `engine_map_min` / `engine_map_max` when supplied
+(fallback 1–12). Missing values show `--`, while a reported map zero remains valid.
+AC EVO fixed brake bias shows FIXED with a dimmed arc. This display metadata does
+not suppress the gamepad buttons: their meaning remains the binding chosen in the sim.

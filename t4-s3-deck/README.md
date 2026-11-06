@@ -18,3 +18,7 @@ running, plug the board in: it finds the device, asks which channels it wants, a
 streams them.
 
 This folder is a complete project. Copy it anywhere and make it yours.
+
+## SDK 0.1.13 channel updates
+
+Shift lights and the RPM dots use `rpm_shift` and `rpm_max`, with 8,000 RPM / 96% fallback when absent. TC/ABS telltales also consume the per-frame latched pulse channels, so short interventions are visible.

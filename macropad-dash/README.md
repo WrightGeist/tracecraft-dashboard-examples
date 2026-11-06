@@ -18,3 +18,9 @@ running, plug the board in: it finds the device, asks which channels it wants, a
 streams them.
 
 This folder is a complete project. Copy it anywhere and make it yours.
+
+## SDK 0.1.13 channel updates
+
+ACC and AC EVO now have populated pages and their own channel views. Unsupported car/sim values show `--`; a present zero TC/ABS level shows OFF. Boolean status cells show ON/OFF. The per-cell encoder binding scheme is unchanged: buttons 17 + 2×cell and 18 + 2×cell (cell 0–11). Status-only cells do not imply that a sim offers a corresponding adjustable binding.
+
+OLED abbreviations: SLP = TC slip, WPT = wiper toggle, CHG = hybrid charging.

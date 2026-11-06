@@ -181,11 +181,11 @@ SettingTile makeTile(lv_obj_t* parent, int x, int y, int w, int h,
   return t;
 }
 
-// Value formatting shared by TC/ABS ("level" semantics: 0 = OFF) vs TC CUT (>0 or dash).
+// Presence is separate from value: TC/ABS zero is OFF; TC CUT zero is a number.
 void formatLevel(char* out, size_t n, int32_t v, bool zeroIsOff) {
-  if (v > 0) snprintf(out, n, "%ld", (long)v);
+  if (v == INT32_MIN) snprintf(out, n, "--");
   else if (v == 0 && zeroIsOff) snprintf(out, n, "OFF");
-  else snprintf(out, n, "-");
+  else snprintf(out, n, "%ld", (long)v);
 }
 
 void tickTile(SettingTile& t, int32_t v, bool zeroIsOff, uint32_t nowMs) {
@@ -487,11 +487,11 @@ void p4dash_tick(bool waitingForData) {
   }
 
   // --- setting tiles + activation lights ------------------------------------------------
-  tickTile(s_tcTile,  tcStore.getInt(TC_CH_TC_LEVEL),  true,  nowMs);
-  tickTile(s_cutTile, tcStore.getInt(TC_CH_TC_CUT),    false, nowMs);
-  tickTile(s_absTile, tcStore.getInt(TC_CH_ABS_LEVEL), true,  nowMs);
-  tickLight(s_tcLight,  tcStore.getBool(TC_CH_TC_ACTIVE),  nowMs);
-  tickLight(s_absLight, tcStore.getBool(TC_CH_ABS_ACTIVE), nowMs);
+  tickTile(s_tcTile,  (tcStore.has(TC_CH_TC_LEVEL) ? tcStore.getInt(TC_CH_TC_LEVEL) : INT32_MIN),  true,  nowMs);
+  tickTile(s_cutTile, (tcStore.has(TC_CH_TC_CUT) ? tcStore.getInt(TC_CH_TC_CUT) : INT32_MIN),    false, nowMs);
+  tickTile(s_absTile, (tcStore.has(TC_CH_ABS_LEVEL) ? tcStore.getInt(TC_CH_ABS_LEVEL) : INT32_MIN), true,  nowMs);
+  tickLight(s_tcLight,  (tcStore.getBool(TC_CH_TC_ACTIVE) || tcStore.getBool(TC_CH_TC_PULSED)),  nowMs);
+  tickLight(s_absLight, (tcStore.getBool(TC_CH_ABS_ACTIVE) || tcStore.getBool(TC_CH_ABS_PULSED)), nowMs);
 
   // --- flag slot: idle chrome well; solid pulsing amber while caution flies -------------
   const bool caution = tcStore.getBool(TC_CH_CAUTION);

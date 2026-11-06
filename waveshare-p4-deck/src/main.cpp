@@ -1,7 +1,7 @@
 /**
- * TraceCraft P4 deck (Waveshare ESP32-P4 5" 1280x720): eight pages, swiped like a
+ * TraceCraft P4 deck (Waveshare ESP32-P4 5" 1280x720): nine pages, swiped like a
  * phone — race dash, timing, weather, opponents, host-PC system, race focus, frame
- * rate, g-force. Tap the left or right half of the screen for brightness.
+ * rate, g-force, fuel/session/pit. Tap the left or right half of the screen for brightness.
  *
  * The shared runtime (USB, display, boot
  * splash, render loop) is tracecraft::App in <TraceCraftApp.h>; this file holds
@@ -18,6 +18,7 @@
 #include "ui_p4sys/p4sys.h"             // host-PC system diagnostics (CPU/RAM/GPU/VRAM traces)
 #include "ui_p4race/p4race.h"           // gear / position / flag-frame race-focus page
 #include "ui_p4fps/p4fps.h"             // game frame-rate hero + rolling trace
+#include "ui_p4strategy/p4strategy.h"
 #include "ui_p4gforce/p4gforce.h"       // friction circle + separate vertical-G column
 
 using namespace tracecraft;
@@ -138,7 +139,7 @@ static void waitModalTick(bool waiting, bool recorderConnected) {
 }
 
 #include "esp_heap_caps.h"
-// --- Swipeable page deck: eight pages, see kPageN ------------------------------
+// --- Swipeable page deck: nine pages, see kPageN ------------------------------
 // All pages build at boot and ALL tick every loop (change-detection makes an
 // idle page nearly free). The host streams only the current page's view, so a
 // hidden page ticks against the values it last had; what must stay current while
@@ -154,7 +155,7 @@ static void waitModalTick(bool waiting, bool recorderConnected) {
 // loops are deliberately blocking: LVGL must not flush bands over the PPA
 // composition, so it isn't serviced until motion lands, then the framebuffer is
 // handed back with an ordinary screen load + full repaint of identical pixels.
-static constexpr int kPageN   = 8;   // race dash / timing / weather / opponents / system / race-focus / fps / g-force
+static constexpr int kPageN   = 9;   // race dash / timing / weather / opponents / system / race-focus / fps / g-force
 static lv_obj_t*     s_pages[kPageN] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
 static int           s_page   = 0;
 
@@ -164,8 +165,8 @@ static int           s_page   = 0;
 // drawn when a stroke began — but a swipe is over in ~150ms, so the finger had
 // usually lifted before the pixels were ready: the drag never engaged, and the
 // driver saw nothing move, then a pause, then a canned slide. So every page keeps
-// a picture (1280x720 RGB565 in PSRAM, 1.8 MB; the eight plus the scratch grab
-// are ~16 MB of the P4's 32). All eight are drawn at boot, one per loop lap,
+// a picture (1280x720 RGB565 in PSRAM, 1.8 MB; the nine plus the scratch grab
+// are ~18 MB of the P4's 32). All nine are drawn at boot, one per loop lap,
 // mostly under the splash; after that, the page you swipe away from is captured
 // off the glass by the PPA grab the slide makes anyway (~3ms). A page slides in
 // as it looked when you last left it, and goes live a frame or two after it
@@ -181,15 +182,15 @@ static int p4deckNext(int from) { return (from + 1) % kPageN; }
 static int p4deckPrev(int from) { return (from + kPageN - 1) % kPageN; }
 
 // --- Views: each page asks the host for its own channels (PROTOCOL.md §4.7) ---
-// The deck declares all 91 channels its pages read, but the host streams only the
+// The deck declares the channels its pages read, but the host streams only the
 // current page's view (waveshare_p4_lcd5_deck.channels.json), so a page
-// pays for its own data on the wire, not for all eight. Indexed like s_pages.
+// pays for its own data on the wire, not for all nine. Indexed like s_pages.
 #ifndef TC_VIEW_COUNT
 #error "the P4 deck needs its per-page views: build it from waveshare_p4_lcd5_deck.channels.json"
 #endif
 static const uint8_t* const kPageView[kPageN] = {
   TC_VIEW_DASH, TC_VIEW_TIMING, TC_VIEW_WEATHER, TC_VIEW_OPPONENTS,
-  TC_VIEW_SYSTEM, TC_VIEW_RACE, TC_VIEW_FPS, TC_VIEW_GFORCE,
+  TC_VIEW_SYSTEM, TC_VIEW_RACE, TC_VIEW_FPS, TC_VIEW_GFORCE, TC_VIEW_STRATEGY,
 };
 
 // The view for the page on the glass, announced as a page lands. A no-op when it
@@ -243,7 +244,7 @@ static void p4deckKeepOut(int page, bool clean) {
 }
 
 // --- Page dots: where you are in the deck -------------------------------------
-// A row of eight dots at the bottom with yours lit: the phone convention for
+// A row of nine dots at the bottom with yours lit: the phone convention for
 // "there are more pages — swipe". Up for a few seconds as the splash clears (when
 // a driver first sees the dash) and briefly after every page change; hidden the
 // moment a finger lands, so a swipe grabs the page without them. On the top
@@ -503,6 +504,7 @@ void setup() {
   s_pages[5] = p4race_setup();
   s_pages[6] = p4fps_setup();
   s_pages[7] = p4gforce_setup();
+  s_pages[8] = p4strategy_setup();
   s_page = 5;                     // RACE (gear/position/lights) boots first
   lv_screen_load(s_pages[s_page]);
   p4deckPageView();               // announced once a host has HELLOed
@@ -530,6 +532,7 @@ void loop() {
   p4race_tick(app.waiting());
   p4fps_tick(app.waiting());
   p4gforce_tick(app.waiting());
+  p4strategy_tick(app.waiting());
   TC_LOOPMARK('i');
   waitModalTick(app.waiting(), (uint8_t)app.dash().linkPhase() >= 2);
   p4deckTick();                   // page pictures at boot; page dots

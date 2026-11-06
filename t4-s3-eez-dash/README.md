@@ -18,3 +18,7 @@ running, plug the board in: it finds the device, asks which channels it wants, a
 streams them.
 
 This folder is a complete project. Copy it anywhere and make it yours.
+
+## SDK 0.1.13 channel updates
+
+Shift lights now use the car's `rpm_shift` cue and `rpm_max` scale. Missing limits fall back to 8,000 RPM / 96% shift cue. `effects.channels.json` supplies the extra channels without changing EEZ widget bindings.

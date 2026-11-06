@@ -32,7 +32,11 @@ static board::P4Controls controls(app);
 // --- A live, schema-agnostic list of every channel ---------------------------
 // Proves HID transport + decode + render without EEZ. Takes the screen to build
 // on, so a deck could host it as a page.
-static lv_obj_t* s_rows[TRACECRAFT_MAX_CHANNELS];
+// Recycle only visible labels so the complete catalog fits the small S3 LVGL pool.
+static constexpr int kVisibleRows = 40;
+static constexpr int kRowHeight = 34;
+static lv_obj_t* s_rows[kVisibleRows];
+static lv_obj_t* s_list = nullptr;
 static lv_obj_t* s_hint = nullptr;
 
 static void buildFallbackUI(lv_obj_t* scr) {
@@ -47,14 +51,26 @@ static void buildFallbackUI(lv_obj_t* scr) {
 
   s_hint = lv_label_create(scr);
   lv_obj_set_style_text_color(s_hint, lv_palette_main(LV_PALETTE_GREY), 0);
-  lv_label_set_text(s_hint, "channel monitor - design your dash in EEZ Studio");
+  lv_label_set_text(s_hint, "channel monitor - scroll for more");
   lv_obj_align(s_hint, LV_ALIGN_TOP_MID, 0, 48);
 
-  for (uint8_t i = 0; i < tcStore.count(); i++) {
-    lv_obj_t* row = lv_label_create(scr);
+  const int height = lv_display_get_vertical_resolution(nullptr);
+  s_list = lv_obj_create(scr);
+  lv_obj_set_size(s_list, LV_PCT(100), height - 86);
+  lv_obj_set_pos(s_list, 0, 86);
+  lv_obj_set_style_bg_opa(s_list, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(s_list, 0, 0);
+  lv_obj_set_style_pad_all(s_list, 0, 0);
+  lv_obj_set_scroll_dir(s_list, LV_DIR_VER);
+  lv_obj_t* spacer = lv_obj_create(s_list);
+  lv_obj_remove_style_all(spacer);
+  lv_obj_set_size(spacer, 1, tcStore.count() * kRowHeight);
+  lv_obj_remove_flag(spacer, LV_OBJ_FLAG_CLICKABLE);
+  for (int i = 0; i < kVisibleRows; i++) {
+    lv_obj_t* row = lv_label_create(s_list);
     lv_obj_set_style_text_color(row, lv_color_white(), 0);
     lv_obj_set_style_text_font(row, &lv_font_montserrat_24, 0);
-    lv_obj_align(row, LV_ALIGN_TOP_LEFT, 20, 90 + i * 34);
+    lv_obj_set_pos(row, 12, i * kRowHeight);
     lv_label_set_text(row, "");
     s_rows[i] = row;
   }
@@ -71,13 +87,23 @@ static void tickFallbackUI() {
     s_hintShown = (int8_t)waiting;
     lv_label_set_text(s_hint, waiting
         ? "waiting for telemetry - start your sim"
-        : "channel monitor - design your dash in EEZ Studio");
+        : "channel monitor - scroll for more");
     lv_obj_set_style_text_color(s_hint,
         waiting ? lv_palette_main(LV_PALETTE_AMBER) : lv_palette_main(LV_PALETTE_GREY), 0);
   }
-  static char s_rowShown[TRACECRAFT_MAX_CHANNELS][80];
+  static char s_rowShown[kVisibleRows][80];
   char buf[80];
-  for (uint8_t i = 0; i < tcStore.count(); i++) {
+  int first = lv_obj_get_scroll_y(s_list) / kRowHeight;
+  if (first < 0) first = 0;
+  for (int slot = 0; slot < kVisibleRows; slot++) {
+    const int index = first + slot;
+    if (index >= tcStore.count()) {
+      lv_obj_add_flag(s_rows[slot], LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
+    const uint8_t i = (uint8_t)index;
+    lv_obj_remove_flag(s_rows[slot], LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_pos(s_rows[slot], 12, index * kRowHeight);
     const ChannelDef& d = tcStore.defs()[i];
     // A channel the recorder says it has no value for (PROTOCOL.md §4.8) shows a
     // dash rather than a 0 the sim never published. With an older recorder that
@@ -91,9 +117,9 @@ static void tickFallbackUI() {
       case Ch_Bool:  snprintf(buf, sizeof(buf), "%s  %s", d.name, tcStore.getBool(i) ? "ON" : "off"); break;
       case Ch_Str:   snprintf(buf, sizeof(buf), "%s  %s", d.name, tcStore.getStr(i)); break;
     }
-    if (strcmp(buf, s_rowShown[i]) != 0) {
-      strcpy(s_rowShown[i], buf);
-      lv_label_set_text(s_rows[i], buf);
+    if (strcmp(buf, s_rowShown[slot]) != 0) {
+      strcpy(s_rowShown[slot], buf);
+      lv_label_set_text(s_rows[slot], buf);
     }
   }
 }

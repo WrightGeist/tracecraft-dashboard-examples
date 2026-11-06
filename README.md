@@ -49,3 +49,20 @@ The TraceCraft libraries are not in this repository and are not MIT. `TraceCraft
 with them. What you build with them is yours to sell or share. The TraceCraft name and logo
 are not licensed by this repository: you may say your device works with TraceCraft, but not
 that TraceCraft made or endorses it.
+
+## Channel compatibility
+
+The examples pin the downloadable **TraceCraftCore / TraceCraftDisplay 0.1.13**
+packages, except CrowPanel, which requires **0.1.14** for its gamepad.
+The pit request, penalty and repair channels also require a Recorder
+version that publishes them; unsupported sim/car values display as unavailable.
+After building an example, run `python scripts/check_channels.py` to validate all
+example registries, the P4 per-page subscriptions and both monitor catalog groups
+against the downloaded SDK. `python scripts/test_dashboard_logic.py` runs the actual
+firmware formatting logic against simulated telemetry (requires `g++`). CI runs
+both checks and builds both monitor groups.
+
+Hardware verification after updating: switch cars (RPM and dial ranges), check
+absent versus zero/off values, exercise all four MacroPad pages, and compare the
+new session/pit pages with the sim. Repairs are the sim's mandatory-repair timer,
+not an estimated total stop or stop-go timer. No firmware is flashed by the checks.

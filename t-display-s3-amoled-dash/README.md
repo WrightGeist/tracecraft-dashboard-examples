@@ -18,3 +18,7 @@ running, plug the board in: it finds the device, asks which channels it wants, a
 streams them.
 
 This folder is a complete project. Copy it anywhere and make it yours.
+
+## SDK 0.1.13 channel updates
+
+An eighth SESSION / PIT page shows virtual energy, session time/laps remaining, pit request, penalty and mandatory-repair countdown. Missing fuel estimates and unsupported channels show `--`, not zero. Pit request currently comes from LMU, penalties from ACC/LMU, and the repair countdown from iRacing; it is not a general pit-stop timer.

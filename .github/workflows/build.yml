@@ -40,3 +40,9 @@ jobs:
           key: pio-${{ matrix.project }}-${{ hashFiles(format('{0}/platformio.ini', matrix.project)) }}
       - run: pip install platformio
       - run: pio run -d ${{ matrix.project }}
+      - name: Validate SDK channel declarations and monitor coverage
+        if: matrix.project == 'crowpanel-round-dash'
+        run: python scripts/check_channels.py --sdk crowpanel-round-dash/.pio/libdeps/crowpanel_round_dash/TraceCraftCore
+      - name: Test dashboard value and missing-data behavior
+        if: matrix.project == 'crowpanel-round-dash'
+        run: python scripts/test_dashboard_logic.py
