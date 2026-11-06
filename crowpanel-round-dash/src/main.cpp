@@ -1,7 +1,7 @@
 /**
  * TraceCraft round dash (Elecrow CrowPanel 1.28" round, 240x240, rotary encoder):
- * a dual-arc setting tweaker for brake bias and engine map, with tell-tales
- * across the top. Pure firmware, no EEZ.
+ * a dual-arc readout of brake bias and engine map, with tell-tales, that is also a
+ * three-button gamepad on the same USB cable. Pure firmware, no EEZ.
  *
  * The shared runtime (USB, display, boot
  * splash, render loop) is tracecraft::App in <TraceCraftApp.h>; this file holds
@@ -20,13 +20,18 @@ using namespace tracecraft;
 static App app;
 
 #include "icons/telltale_icons.h"   // A8 blinker/headlight/wiper icons
-// --- Round dual-arc setting tweaker (CrowPanel 1.28" GC9A01, 240x240) -------
-// Two gauges flank screen center: brake bias on the left, engine map on the
-// right (a notch per step). The rotary encoder nudges the ACTIVE gauge; the
-// center push-button (the screen itself is the button) toggles which gauge is
-// active. The knob is LOCAL ONLY — we can't write back to the sim — so each
-// gauge tracks live telemetry until you touch the knob, then holds your value.
-// The active gauge's caption lights up; the other dims. Pure firmware, no EEZ.
+// --- Round dual-arc readout + encoder gamepad (CrowPanel 1.28" GC9A01, 240x240) --
+// Two gauges flank screen center: brake bias on the left, engine map on the right
+// (a notch per step). Both show what the sim reports, and only that.
+//
+// The encoder is a gamepad, beside the telemetry interface on the same cable:
+//   button 1  one clockwise detent        (a press, then a release)
+//   button 2  one counterclockwise detent (a press, then a release)
+//   button 3  the center push-button      (held while you hold it)
+// Bind them in the sim (brake bias +/-, or engine map +/-, and whatever you like on the
+// press). The gauges then move because the sim changed the value, never before. Three
+// buttons drive one pair of +/- bindings at a time: the press does not switch the knob
+// between bias and map, unless the sim lets you bind it to do so.
 //
 // A row of tell-tales sits across the top of the dial — turn signals (firmware-
 // blinked, since sims report a steady "engaged" flag), headlight stage (low
@@ -55,14 +60,30 @@ static lv_obj_t* s_biasCap = nullptr;
 static lv_obj_t* s_mapCap  = nullptr;
 static lv_obj_t* s_mapDots[kMapNotches] = { nullptr };
 
-static int   s_active     = 0;       // 0 = brake bias, 1 = engine map
-static bool  s_biasManual = false;   // true once the knob overrides live data
-static bool  s_mapManual  = false;
-static float s_biasLocal  = 60.0f;   // currently shown bias (live or overridden)
-static int   s_mapLocal   = 6;
+// --- gamepad -------------------------------------------------------------------
+static constexpr uint32_t kBtnCw    = 1u << 0;   // button 1
+static constexpr uint32_t kBtnCcw   = 1u << 1;   // button 2
+static constexpr uint32_t kBtnPress = 1u << 2;   // button 3
 
-static uint8_t  s_swPrev   = 1;
-static uint32_t s_swLastMs = 0;
+// A sim samples its controllers about once a frame, so a detent is a press held
+// kTapHoldMs, then a release held kTapGapMs before the next one. Both clocks start
+// when USB accepted the report, not when we wanted it sent, so a busy endpoint
+// stretches a tap and never shortens it. Detents queue (signed: + = clockwise) up to
+// kTapQueueMax; a turn faster than that drops the detents beyond it, and turning back
+// cancels queued detents before adding any.
+static constexpr uint32_t kTapHoldMs   = 50;
+static constexpr uint32_t kTapGapMs    = 50;
+static constexpr int      kTapQueueMax = 12;
+static constexpr uint32_t kSwDebounceMs = 20;
+
+static int      s_tapQueue = 0;
+static uint32_t s_tapBit   = 0;            // tap button held now, 0 = none
+static bool     s_tapGap   = false;        // a release was accepted; waiting out the gap
+static uint32_t s_tapAt    = 0;            // when the current hold / gap was accepted
+static uint32_t s_padSent  = 0;            // last mask USB accepted
+static bool     s_padUp    = false;        // host has the gamepad configured
+static bool     s_swRaw = false, s_swDown = false;
+static uint32_t s_swChangedAt = 0;
 
 // --- tell-tale row (turn signals / headlights / wipers) --------------------------
 static lv_obj_t* s_ttTurnL  = nullptr;
@@ -103,7 +124,7 @@ static void cpTellBlink(lv_obj_t* ic, bool raw, uint32_t& lastTrue, uint8_t& sho
 // intermediate gray-code states of a fast turn and the full-sequence check never
 // completes (every detent gets dropped). Running the decoder in an ISR on every A/B
 // edge means we never miss a transition. Each completed step accumulates into
-// s_encDelta; tickCrowPanelUI drains it (so several detents in one frame all count).
+// s_encDelta; padTick drains it (so several detents in one frame all count).
 // The table rejects illegal (bounce) transitions, so noise can't fake a step.
 // If your encoder counts backwards, swap the kEncA/kEncB reads below.
 static volatile int16_t s_encDelta = 0;
@@ -166,7 +187,6 @@ static void setupCrowPanelUI() {
   pinMode(kEncA,  INPUT_PULLUP);
   pinMode(kEncB,  INPUT_PULLUP);
   pinMode(kEncSW, INPUT_PULLUP);
-  s_swPrev   = digitalRead(kEncSW);
   attachInterrupt(digitalPinToInterrupt(kEncA), encISR, CHANGE);
   attachInterrupt(digitalPinToInterrupt(kEncB), encISR, CHANGE);
 
@@ -210,60 +230,87 @@ static void setupCrowPanelUI() {
   s_ttWipers = cpMakeTell(scr, &tc_icon_wipers,         30,  74);
 }
 
-static void tickCrowPanelUI() {
-  // --- input: rotary encoder + center button (active-low, INPUT_PULLUP) -------
+// The encoder and the push-button, as gamepad reports. Runs every loop; never
+// blocks, so a busy endpoint costs a retry on the next loop, not a stall.
+static void padTick() {
+  const uint32_t now = millis();
+
   noInterrupts();
-  const int dir = s_encDelta;                    // net detents since last frame (ISR-fed)
+  const int d = s_encDelta;                      // net detents since last loop (ISR-fed)
   s_encDelta = 0;
   interrupts();
 
-  const uint8_t sw = digitalRead(kEncSW);
-  const uint32_t nowMs = millis();
-  if (s_swPrev == 1 && sw == 0 && (nowMs - s_swLastMs) > 200) {
-    s_active = s_active ? 0 : 1;                  // toggle which gauge the knob drives
-    s_swLastMs = nowMs;
+  // Unplugged or reset: the host has released every button. Drop the tap in
+  // progress and the queue, so nothing is pressed when it comes back, then
+  // send the button's real state again.
+  if (!usb::gamepad::mounted()) {
+    s_padUp = false;
+    s_tapQueue = 0;
+    s_tapBit = 0;
+    s_tapGap = false;
+    return;
   }
-  s_swPrev = sw;
-
-  if (dir != 0) {
-    if (s_active == 0) {
-      s_biasManual = true;
-      s_biasLocal += dir * 0.5f;                  // 0.5 % front per detent
-      s_biasLocal = fminf(kBiasMax, fmaxf(kBiasMin, s_biasLocal));
-    } else {
-      s_mapManual = true;
-      s_mapLocal += dir;
-      if (s_mapLocal < kMapMin) s_mapLocal = kMapMin;
-      if (s_mapLocal > kMapMax) s_mapLocal = kMapMax;
-    }
+  if (!s_padUp) {
+    s_padUp = true;
+    s_padSent = UINT32_MAX;                      // not a real mask: forces a send
   }
 
-  // --- live telemetry tracks the sim until the knob takes over ---------------
+  if (d != 0) {
+    int q = s_tapQueue + d;
+    int dropped = 0;
+    if (q >  kTapQueueMax) { dropped = q - kTapQueueMax;  q =  kTapQueueMax; }
+    if (q < -kTapQueueMax) { dropped = -kTapQueueMax - q; q = -kTapQueueMax; }
+    s_tapQueue = q;
+    if (dropped) usb::log().printf("[pad] queue full: %d detent(s) dropped\n", dropped);
+  }
+
+  const bool swRaw = digitalRead(kEncSW) == LOW;   // active low
+  if (swRaw != s_swRaw) { s_swRaw = swRaw; s_swChangedAt = now; }
+  else if (swRaw != s_swDown && now - s_swChangedAt >= kSwDebounceMs) s_swDown = swRaw;
+
+  // The tap state advances only on what the host was actually sent.
+  if (s_tapBit && (s_padSent & s_tapBit) && now - s_tapAt >= kTapHoldMs) s_tapBit = 0;
+  if (s_tapGap && now - s_tapAt >= kTapGapMs) s_tapGap = false;
+  if (!s_tapBit && !s_tapGap && s_tapQueue != 0 && !(s_padSent & (kBtnCw | kBtnCcw))) {
+    s_tapBit = s_tapQueue > 0 ? kBtnCw : kBtnCcw;
+    s_tapQueue += s_tapQueue > 0 ? -1 : 1;
+  }
+
+  const uint32_t want = s_tapBit | (s_swDown ? kBtnPress : 0);
+  if (want == s_padSent || !usb::gamepad::send(want)) return;   // busy: retried next loop
+  const uint32_t was = s_padSent;
+  s_padSent = want;
+  if (want & ~was & (kBtnCw | kBtnCcw)) s_tapAt = now;                         // hold begins
+  if (was != UINT32_MAX && (was & ~want & (kBtnCw | kBtnCcw))) { s_tapGap = true; s_tapAt = now; }   // gap begins
+}
+
+static void tickCrowPanelUI() {
+  // --- live telemetry only: "--" until the sim reports a value ----------------
+  const bool  live     = !app.waiting();
   const float liveBias = tcStore.getFloat(TC_CH_BRAKE_BIAS_PCT);
   const int   liveMap  = (int)tcStore.getInt(TC_CH_ENGINE_MAP);
-  if (!s_biasManual && liveBias > 1.0f) s_biasLocal = liveBias;     // 0 == no data
-  if (!s_mapManual  && liveMap >= kMapMin) s_mapLocal = liveMap;
+  const bool  hasBias  = live && liveBias > 1.0f;              // 0 == no data
+  const bool  hasMap   = live && liveMap >= kMapMin;
 
   // --- render -----------------------------------------------------------------
-  const int biasArc = (int)((s_biasLocal - kBiasMin) / (kBiasMax - kBiasMin) * 1000.0f);
-  const int mapArc  = (int)((float)(s_mapLocal - kMapMin) / (kMapMax - kMapMin) * 1000.0f);
+  const int biasArc = hasBias ? (int)((liveBias - kBiasMin) / (kBiasMax - kBiasMin) * 1000.0f) : 0;
+  const int mapArc  = hasMap ? (int)((float)(liveMap - kMapMin) / (kMapMax - kMapMin) * 1000.0f) : 0;
   lv_arc_set_value(s_biasArc, biasArc < 0 ? 0 : biasArc > 1000 ? 1000 : biasArc);
   lv_arc_set_value(s_mapArc,  mapArc  < 0 ? 0 : mapArc  > 1000 ? 1000 : mapArc);
 
   char buf[16];
-  snprintf(buf, sizeof(buf), "%.0f", (double)s_biasLocal);
+  if (hasBias) snprintf(buf, sizeof(buf), "%.0f", (double)liveBias);
+  else         snprintf(buf, sizeof(buf), "--");
   lv_label_set_text(s_biasVal, buf);
-  snprintf(buf, sizeof(buf), "%d", s_mapLocal);
+  if (hasMap) snprintf(buf, sizeof(buf), "%d", liveMap);
+  else        snprintf(buf, sizeof(buf), "--");
   lv_label_set_text(s_mapVal, buf);
 
-  // active gauge: caption lit in its color; inactive: dim gray
-  lv_obj_set_style_text_color(s_biasCap, s_active == 0 ? kBiasCol : lv_color_hex(0x666666), 0);
-  lv_obj_set_style_text_color(s_mapCap,  s_active == 1 ? kMapCol  : lv_color_hex(0x666666), 0);
-  lv_obj_set_style_arc_opa(s_biasArc, s_active == 0 ? LV_OPA_COVER : LV_OPA_50, LV_PART_INDICATOR);
-  lv_obj_set_style_arc_opa(s_mapArc,  s_active == 1 ? LV_OPA_COVER : LV_OPA_50, LV_PART_INDICATOR);
+  lv_obj_set_style_text_color(s_biasCap, hasBias ? kBiasCol : lv_color_hex(0x666666), 0);
+  lv_obj_set_style_text_color(s_mapCap,  hasMap  ? kMapCol  : lv_color_hex(0x666666), 0);
 
-  // light the notch dot for the current engine-map step
-  const int lit = s_mapLocal - kMapMin;
+  // light the notch dot for the current engine-map step (none without data)
+  const int lit = hasMap ? liveMap - kMapMin : -1;
   for (int i = 0; i < kMapNotches; i++) {
     if (!s_mapDots[i]) continue;
     lv_obj_set_style_bg_color(s_mapDots[i],
@@ -284,6 +331,9 @@ static void tickCrowPanelUI() {
 }
 
 void setup() {
+  usb::gamepad::Config pad;                      // two centered axes too, for joy.cpl
+  pad.buttons = 3;
+  app.useGamepad(pad);                           // before begin(): USB enumerates there
   app.begin(TRACECRAFT_DEVICE_NAME, board::renderer(), board::hasPSRAM());
   setupCrowPanelUI();
   app.ready();
@@ -291,5 +341,7 @@ void setup() {
 
 void loop() {
   app.loop();
-  tickCrowPanelUI();            // poll encoder/button + redraw the two gauges
+  padTick();                    // encoder + button -> gamepad reports
+  tickCrowPanelUI();            // redraw the two gauges from telemetry
+  padTick();                    // again after the redraw: a tap's release is not held up by it
 }
