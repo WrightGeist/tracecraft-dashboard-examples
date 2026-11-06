@@ -43,8 +43,8 @@ static constexpr int kEncB  = 42;    // rotary B  (DT)
 static constexpr int kEncSW = 41;    // center push-button
 
 static constexpr float kBiasMin = 45.0f, kBiasMax = 75.0f;  // % toward front axle
-static constexpr int   kMapMin  = 1,     kMapMax  = 12;      // engine-map steps
-static constexpr int   kMapNotches = kMapMax - kMapMin + 1;  // 12
+static int             kMapMin  = 1,     kMapMax  = 12;      // engine-map steps
+static constexpr int   kMapNotches = 32; // maximum visual ticks; larger ranges still use the arc
 // Gauges are sized + offset so they DON'T touch at screen center: the MAP arc's
 // notch-dot ring extends ~6px beyond the arc all the way around, so tangent
 // gauges let the map dots (and the arc band itself) cross into the BIAS arc.
@@ -285,16 +285,23 @@ static void padTick() {
 }
 
 static void tickCrowPanelUI() {
+  // Per-car limits; missing metadata resets to the original display defaults.
+  const int reportedMin = tcStore.has(TC_CH_ENGINE_MAP_MIN) ? tcStore.getInt(TC_CH_ENGINE_MAP_MIN) : 1;
+  const int reportedMax = tcStore.has(TC_CH_ENGINE_MAP_MAX) ? tcStore.getInt(TC_CH_ENGINE_MAP_MAX) : 12;
+  const bool validRange = reportedMin >= 0 && reportedMax <= 255 && reportedMax >= reportedMin;
+  kMapMin = validRange ? reportedMin : 1;
+  kMapMax = validRange ? reportedMax : 12;
+  const bool biasAdjustable = !tcStore.has(TC_CH_BRAKE_BIAS_ADJ) || tcStore.getBool(TC_CH_BRAKE_BIAS_ADJ);
   // --- live telemetry only: "--" until the sim reports a value ----------------
   const bool  live     = !app.waiting();
   const float liveBias = tcStore.getFloat(TC_CH_BRAKE_BIAS_PCT);
   const int   liveMap  = (int)tcStore.getInt(TC_CH_ENGINE_MAP);
-  const bool  hasBias  = live && liveBias > 1.0f;              // 0 == no data
-  const bool  hasMap   = live && liveMap >= kMapMin;
+  const bool  hasBias  = live && tcStore.has(TC_CH_BRAKE_BIAS_PCT);
+  const bool  hasMap   = live && tcStore.has(TC_CH_ENGINE_MAP);
 
   // --- render -----------------------------------------------------------------
   const int biasArc = hasBias ? (int)((liveBias - kBiasMin) / (kBiasMax - kBiasMin) * 1000.0f) : 0;
-  const int mapArc  = hasMap ? (int)((float)(liveMap - kMapMin) / (kMapMax - kMapMin) * 1000.0f) : 0;
+  const int mapArc  = hasMap ? (int)((float)(liveMap - kMapMin) / (kMapMax > kMapMin ? kMapMax - kMapMin : 1) * 1000.0f) : 0;
   lv_arc_set_value(s_biasArc, biasArc < 0 ? 0 : biasArc > 1000 ? 1000 : biasArc);
   lv_arc_set_value(s_mapArc,  mapArc  < 0 ? 0 : mapArc  > 1000 ? 1000 : mapArc);
 
@@ -306,6 +313,9 @@ static void tickCrowPanelUI() {
   else        snprintf(buf, sizeof(buf), "--");
   lv_label_set_text(s_mapVal, buf);
 
+  lv_label_set_text(s_biasCap, biasAdjustable ? "BIAS" : "FIXED");
+  lv_obj_set_style_opa(s_biasArc, biasAdjustable && hasBias ? LV_OPA_COVER : LV_OPA_50, 0);
+  lv_obj_set_style_opa(s_mapArc, hasMap ? LV_OPA_COVER : LV_OPA_50, 0);
   lv_obj_set_style_text_color(s_biasCap, hasBias ? kBiasCol : lv_color_hex(0x666666), 0);
   lv_obj_set_style_text_color(s_mapCap,  hasMap  ? kMapCol  : lv_color_hex(0x666666), 0);
 
@@ -313,6 +323,16 @@ static void tickCrowPanelUI() {
   const int lit = hasMap ? liveMap - kMapMin : -1;
   for (int i = 0; i < kMapNotches; i++) {
     if (!s_mapDots[i]) continue;
+    const int count = kMapMax - kMapMin + 1;
+    if (!hasMap || count > kMapNotches || i >= count) {
+      lv_obj_add_flag(s_mapDots[i], LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
+    lv_obj_remove_flag(s_mapDots[i], LV_OBJ_FLAG_HIDDEN);
+    const float angle = (135.0f + 270.0f * i / (count > 1 ? count - 1 : 1)) * 0.01745329f;
+    const float radius = kArcSz / 2.0f + 6.0f;
+    lv_obj_set_pos(s_mapDots[i], 120 + kArcOff + (int)(radius * cosf(angle)) - 2,
+                  120 + (int)(radius * sinf(angle)) - 2);
     lv_obj_set_style_bg_color(s_mapDots[i],
         i == lit ? kMapCol : lv_color_hex(0x555555), 0);
   }

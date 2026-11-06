@@ -1,1 +1,11 @@
-["brake_bias_pct", "engine_map", "headlights", "wipers", "turn_left", "turn_right"]
+[
+  "brake_bias_pct",
+  "engine_map",
+  "headlights",
+  "wipers",
+  "turn_left",
+  "turn_right",
+  "engine_map_min",
+  "engine_map_max",
+  "brake_bias_adj"
+]

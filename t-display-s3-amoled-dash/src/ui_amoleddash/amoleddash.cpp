@@ -1,4 +1,4 @@
-// TraceCraft T-Display S3 AMOLED dashboard — 536x240 landscape, 3 screens you page
+// TraceCraft T-Display S3 AMOLED dashboard — 536x240 landscape, 8 screens you page
 // through by tapping the touch panel:
 //
 //   1. TIRE TEMP — the average of the four tire surface temps, with the WHOLE screen
@@ -70,9 +70,13 @@ constexpr uint8_t  kBriDim  = 70;    // dim half of the pulse
 lv_color_t hex(uint32_t c) { return lv_color_hex(c); }
 
 // ---- screens + widgets ----------------------------------------------------------
-constexpr int kPageN = 7;   // tire / pit / fuel / perf-overview / fps / cpu / gpu
+constexpr int kPageN = 8;   // tire / pit / fuel / perf-overview / fps / cpu / gpu / session-pit
 lv_obj_t* s_pages[kPageN] = { nullptr };
 int       s_page = 0;
+lv_obj_t* s_strategy = nullptr;
+lv_obj_t* s_strategyRows[5] = {};
+char s_strategyShown[5][96] = {};
+
 
 // screen 1 — tires
 lv_obj_t* s_tScr = nullptr; lv_obj_t* s_tCap = nullptr; lv_obj_t* s_tBig = nullptr;
@@ -291,6 +295,16 @@ lv_obj_t* amoleddash_setup() {
 
   s_pages[0] = s_tScr; s_pages[1] = s_pScr; s_pages[2] = s_fScr; s_pages[3] = s_gScr;
   s_pages[4] = s_dScr[0]; s_pages[5] = s_dScr[1]; s_pages[6] = s_dScr[2];
+  s_strategy = mkScreen(kBlack);
+  lv_obj_t* strategyTitle = mkLabel(s_strategy, &geist_sans_24, kWhite, "SESSION / PIT");
+  lv_obj_set_pos(strategyTitle, 12, 8);
+  for (int i = 0; i < 5; ++i) {
+    s_strategyRows[i] = mkLabel(s_strategy, &lv_font_montserrat_20, kWhite, "--");
+    lv_obj_set_width(s_strategyRows[i], W - 24);
+    lv_label_set_long_mode(s_strategyRows[i], LV_LABEL_LONG_DOT);
+    lv_obj_set_pos(s_strategyRows[i], 12, 48 + i * 36);
+  }
+  s_pages[7] = s_strategy;
   s_page = 0;
   lv_screen_load(s_pages[0]);
   return s_pages[0];
@@ -383,6 +397,45 @@ void amoleddash_tick(bool waiting) {
     }
   }
 
+  // Session and pit data never infer zero/none from an absent channel.
+  for (int i = 0; i < 5; ++i) {
+    char b[96] = "--";
+    if (!waiting) {
+      switch (i) {
+        case 0:
+          if (tcStore.has(TC_CH_VIRTUAL_ENERGY_PCT)) snprintf(b, sizeof(b), "Energy: %.1f%%", (double)tcStore.getFloat(TC_CH_VIRTUAL_ENERGY_PCT));
+          else snprintf(b, sizeof(b), "Energy: --");
+          break;
+        case 1: {
+          char time[24] = "--", laps[24] = "--";
+          const float secs = tcStore.getFloat(TC_CH_SESSION_TIME_LEFT);
+          if (tcStore.has(TC_CH_SESSION_TIME_LEFT) && isfinite(secs) && secs >= 0) {
+            const unsigned t = (unsigned)fminf(secs, 359999);
+            snprintf(time, sizeof(time), "%u:%02u:%02u", t / 3600, t / 60 % 60, t % 60);
+          }
+          if (tcStore.has(TC_CH_SESSION_LAPS_LEFT)) snprintf(laps, sizeof(laps), "%ld", (long)tcStore.getInt(TC_CH_SESSION_LAPS_LEFT));
+          snprintf(b, sizeof(b), "Left: %s | %s laps", time, laps);
+          break;
+        }
+        case 2:
+          snprintf(b, sizeof(b), "Pit request: %s", tcStore.has(TC_CH_PIT_REQUESTED) ? (tcStore.getBool(TC_CH_PIT_REQUESTED) ? "YES" : "NO") : "--");
+          break;
+        case 3: {
+          const char* due = tcStore.has(TC_CH_PENALTY_DUE) ? tcStore.getStr(TC_CH_PENALTY_DUE) : "--";
+          if (!*due) due = "None";
+          if (tcStore.has(TC_CH_PENALTY_LAPS_LEFT)) snprintf(b, sizeof(b), "%s | %ld laps to serve", due, (long)tcStore.getInt(TC_CH_PENALTY_LAPS_LEFT));
+          else snprintf(b, sizeof(b), "Penalty: %s", due);
+          break;
+        }
+        case 4:
+          if (tcStore.has(TC_CH_PIT_WAIT_S)) snprintf(b, sizeof(b), "%s: %.0f s", tcStore.has(TC_CH_PIT_WAIT_FOR) ? tcStore.getStr(TC_CH_PIT_WAIT_FOR) : "Repairs", (double)tcStore.getFloat(TC_CH_PIT_WAIT_S));
+          else snprintf(b, sizeof(b), "Repair countdown: --");
+          break;
+      }
+    }
+    setText(s_strategyRows[i], s_strategyShown[i], sizeof(s_strategyShown[i]), b);
+  }
+
   // ---- Screen 3: fuel -------------------------------------------------------------
   {
     if (waiting) {
@@ -398,18 +451,23 @@ void amoleddash_tick(bool waiting) {
       const float laps  = tcStore.getFloat(TC_CH_FUEL_LAPS_LEFT);
       const float per   = tcStore.getFloat(TC_CH_FUEL_PER_LAP);
       const int   pctC  = pct < 0 ? 0 : pct > 100 ? 100 : pct;
-      const bool  crit  = pctC <= kFuelCrit || (laps > 0 && laps <= kLapsCrit);
+      const bool  crit  = (tcStore.has(TC_CH_FUEL_PCT) && pctC <= kFuelCrit) || (tcStore.has(TC_CH_FUEL_LAPS_LEFT) && laps >= 0 && laps <= kLapsCrit);
       s_fCrit = crit;
 
       // Critical: steady red behind the readouts; the alarm pulse is the brightness
       // flash (applied at end of tick), so we don't repaint the frame every toggle.
       setBg(s_fScr, s_fBgShown, crit ? kRed : kBlack);
 
-      char b[12]; snprintf(b, sizeof(b), "%.1f", laps < 0 ? 0.0f : laps);
+      char b[12];
+      if (tcStore.has(TC_CH_FUEL_LAPS_LEFT)) snprintf(b, sizeof(b), "%.1f", laps); else snprintf(b, sizeof(b), "--");
       setText(s_fBig, s_fBigPrev, sizeof(s_fBigPrev), b);
-      char p[8]; snprintf(p, sizeof(p), "%d%%", pctC);
+      char p[8];
+      if (tcStore.has(TC_CH_FUEL_PCT)) snprintf(p, sizeof(p), "%d%%", pctC); else snprintf(p, sizeof(p), "--");
       setText(s_fPct, s_fPctPrev, sizeof(s_fPctPrev), p);
-      char f[40]; snprintf(f, sizeof(f), "%.1f L   |   %.1f L/lap", lit < 0 ? 0.0f : lit, per < 0 ? 0.0f : per);
+      char l[12] = "--", burn[12] = "--", f[40];
+      if (tcStore.has(TC_CH_FUEL_LITERS)) snprintf(l, sizeof(l), "%.1f", lit);
+      if (tcStore.has(TC_CH_FUEL_PER_LAP)) snprintf(burn, sizeof(burn), "%.1f", per);
+      snprintf(f, sizeof(f), "%s L   |   %s L/lap", l, burn);
       setText(s_fFoot, s_fFootPrev, sizeof(s_fFootPrev), f);
 
       const uint32_t barCol = pctC <= kFuelCrit ? kRed : pctC < kFuelLow ? kAmber : kGreen;
