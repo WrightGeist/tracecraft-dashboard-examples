@@ -28,9 +28,9 @@ static App app;
 // One large circular badge in the style of the recorder's Windows driver dashboard
 // (its sector tile): a disc filled with the web app's sector
 // color, a big dark number, and a BRIGHT white flash on every sector change. Reads
-// the canonical `sector` when the sim publishes it (ACC + LMU), else derives the
-// sector from lap_dist_pct thirds (AC EVO + iRacing) — the same fallback the app
-// uses. Pure firmware, no EEZ.
+// the canonical `sector` when the sim publishes it (iRacing, ACC, LMU), else
+// divides the lap into equal parts (AC EVO) — the same fallback the app uses.
+// Pure firmware, no EEZ.
 
 // TraceCraft's sector palette. Cycles mod 4.
 static const uint32_t kSectorColors[4] = { 0xd97c7c, 0x7aa3c8, 0xd4a05a, 0x7fb393 };
@@ -116,11 +116,15 @@ static void setupSectorUI(lv_obj_t* scr) {
 static void tickSectorUI() {
   // --- resolve the sector index (0-based) cross-sim ---
   int sc = (int)tcStore.getInt(TC_CH_SECTOR_COUNT);
-  if (sc < 1) sc = 3;                                  // iRacing leaves it null -> assume 3
+  if (sc < 1) sc = 3;                                  // no count published -> assume 3
   const int s = (int)tcStore.getInt(TC_CH_SECTOR);
   const float pct = tcStore.getFloat(TC_CH_LAP_DIST_PCT);
-  int idx = (s > 0) ? s                                // sim published a definite sector
-                    : (int)(pct * sc);                 // fallback (covers sector 0 + EVO/iR)
+  // Sector 0 is a real sector, so ask the store whether the sim sent one rather
+  // than reading a 0 as "none": that put sector 2 at a quarter of the lap on a
+  // 4-sector track. An older recorder can't say, so there a 0 still falls back.
+  const bool hasSector = tcStore.presenceKnown() ? tcStore.has(TC_CH_SECTOR) : s > 0;
+  int idx = hasSector ? s                              // the sim's own sector
+                      : (int)(pct * sc);               // fallback: equal parts of the lap (AC EVO)
   if (idx < 0) idx = 0;
   if (idx >= sc) idx = sc - 1;
 

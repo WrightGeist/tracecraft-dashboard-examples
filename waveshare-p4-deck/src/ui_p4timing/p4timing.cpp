@@ -450,7 +450,10 @@ void p4timing_tick(bool waitingForData) {
   if (sc < 1) sc = 3;
   const int   sRaw = (int)tcStore.getInt(TC_CH_SECTOR);
   const float pct  = tcStore.getFloat(TC_CH_LAP_DIST_PCT);
-  int idx = (sRaw > 0) ? sRaw : (int)(pct * sc);
+  // Sector 0 is a real sector: ask the store whether the sim sent one (an older
+  // recorder can't say, so there a 0 still falls back to thirds).
+  const bool hasSector = tcStore.presenceKnown() ? tcStore.has(TC_CH_SECTOR) : sRaw > 0;
+  int idx = hasSector ? sRaw : (int)(pct * sc);
   if (idx < 0) idx = 0;
   if (idx >= sc) idx = sc - 1;
 
